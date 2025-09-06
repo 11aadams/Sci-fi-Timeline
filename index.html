@@ -134,7 +134,7 @@ let baselineEl = null;   // reference to baseline element
 /* -------------------------
    Rendering
    ------------------------- */
-function renderTimeline(zoom = 1) {
+function renderTimeline(zoom = 8) {
   canvas.innerHTML = ''; // clear
   // compute bounds
   const years = movies.map(m=>m.year);
