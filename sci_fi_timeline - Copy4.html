@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sci-Fi Movies Timeline — Connectors Fixed</title>
+<style>
+  :root{
+    --bg:#0b0f13;
+    --accent:#06b6d4;
+    --muted:#94a3b8;
+    --line:#6b7280;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;overflow:hidden;color:#e6eef6;}
+  .timeline-container{position:relative;height:100%;width:100%;overflow:hidden;}
+  .canvas{position:absolute;top:0;left:0;height:100%;transition:width 0.18s ease;}
+  .baseline{position:absolute;left:0;top:50%;height:4px;width:100%;background:var(--line);z-index:1;border-radius:2px;}
+  .tick{position:absolute;top:50%;transform:translateY(-50%);width:2px;height:14px;background:var(--line);z-index:2;}
+  .tick label{position:absolute;top:16px;left:-28px;width:56px;text-align:center;font-size:12px;color:var(--muted);}
+  .marker{position:absolute;display:flex;flex-direction:column;align-items:center;user-select:none;z-index:4;}
+  .marker.top .thumb{transform:translateY(-8px)}
+  .marker.bottom .thumb{transform:translateY(8px)}
+  .thumb{width:90px;height:120px;border-radius:6px;object-fit:cover;border:3px solid rgba(255,255,255,0.04);transition:transform .12s ease,box-shadow .12s ease;}
+  .marker:hover .thumb{transform:scale(1.08);box-shadow:0 14px 36px rgba(0,0,0,0.6);}
+  .label{margin-top:8px;font-size:12px;color:#cfe7ff;text-align:center;width:140px}
+  .connector{position:absolute;width:2px;background:linear-gradient(180deg,var(--accent),var(--line));border-radius:2px;z-index:2;pointer-events:none;transition:height .08s linear,top .08s linear,left .08s linear;}
+  .controls{position:fixed;left:14px;top:12px;z-index:20;background:rgba(7,16,24,0.8);backdrop-filter:blur(4px);padding:8px 10px;border-radius:8px;display:flex;gap:10px;align-items:center}
+  .controls label{color:var(--muted);font-size:13px}
+  .controls input[type=range]{width:160px}
+  .controls .value{width:48px;text-align:center;color:var(--muted)}
+  /* hide native scrollbar but still allow scrolling */
+  ::-webkit-scrollbar{display:none}
+  @media (max-width:700px){ .thumb{width:72px;height:96px} .label{width:110px} }
+</style>
+</head>
+<body>
+<div class="timeline-container" id="viewport">
+  <div class="canvas" id="canvas"></div>
+
+  <div class="controls" id="controls">
+    <label>Zoom</label>
+    <input id="zoom" type="range" min="0.6" max="8" step="0.05" value="1">
+    <div class="value" id="zoomVal">1.00×</div>
+  </div>
+</div>
+
+<script>
+/* -------------------------
+   Data
+   ------------------------- */
+const movies = [
+  { title: "2001: A Space Odyssey", year: 2001, img: "https://upload.wikimedia.org/wikipedia/en/1/11/2001_A_Space_Odyssey_%281968%29.png" },
+{ title: "I Am Legend", year: 2012, img: "https://upload.wikimedia.org/wikipedia/en/d/df/I_am_legend_teaser.jpg" },
+{ title: "Back to the Future Part II", year: 2015, img: "https://upload.wikimedia.org/wikipedia/en/c/c2/Back_to_the_Future_Part_II.jpg" },
+{ title: "Rise of the Planet of the Apes", year: 2016, img: "https://upload.wikimedia.org/wikipedia/en/8/81/Rise_of_the_Planet_of_the_Apes_Poster.jpg" },
+{ title: "Seeking a Friend for the End of the World", year: 2021, img: "https://upload.wikimedia.org/wikipedia/en/a/a7/Seeking_a_Friend_for_the_End_of_the_World_Poster.jpg" },
+{ title: "Soylent Green", year: 2022, img: "https://upload.wikimedia.org/wikipedia/en/1/13/Soylent_green.jpg" },
+{ title: "Surrogates", year: 2023, img: "https://upload.wikimedia.org/wikipedia/en/f/fd/Surrogates2009MP.jpg" },
+{ title: "Pacific Rim", year: 2025, img: "https://upload.wikimedia.org/wikipedia/en/f/f3/Pacific_Rim_FilmPoster.jpeg" },
+{ title: "The Cloverfield Paradox", year: 2028, img: "https://upload.wikimedia.org/wikipedia/en/e/e5/Cloverfield_paradox_poster.jpg" },
+{ title: "War for the Planet of the Apes", year: 2028, img: "https://upload.wikimedia.org/wikipedia/en/d/d7/War_for_the_Planet_of_the_Apes_poster.jpg" },
+{ title: "Ghost in the Shell", year: 2029, img: "https://upload.wikimedia.org/wikipedia/en/c/ca/Ghostintheshellposter.jpg" },
+{ title: "The Terminator", year: 2029, img: "https://upload.wikimedia.org/wikipedia/en/6/6d/The_Terminator.png" },
+{ title: "eXistenZ", year: 2030, img: "https://upload.wikimedia.org/wikipedia/en/7/76/EXISTENZ.jpg" },
+{ title: "I, Robot", year: 2035, img: "https://upload.wikimedia.org/wikipedia/en/3/3b/Movie_poster_i_robot.jpg" },
+{ title: "The Martian", year: 2035, img: "https://upload.wikimedia.org/wikipedia/en/c/cd/The_Martian_film_poster.jpg" },
+{ title: "Pacific Rim: Uprising", year: 2035, img: "https://upload.wikimedia.org/wikipedia/en/1/12/Pacific_Rim_-_Uprising_%282018_film%29.jpg" },
+{ title: "Meet the Robinsons", year: 2037, img: "https://upload.wikimedia.org/wikipedia/en/d/dc/Meet_the_robinsons.jpg" },
+{ title: "RoboCop", year: 2043, img: "https://upload.wikimedia.org/wikipedia/en/1/16/RoboCop_%281987%29_theatrical_poster.jpg" },
+{ title: "Looper", year: 2044, img: "https://upload.wikimedia.org/wikipedia/en/0/0a/Looper_poster.jpg" },
+{ title: "Ready Player One", year: 2045, img: "https://upload.wikimedia.org/wikipedia/en/7/74/Ready_Player_One_%28film%29.png" },
+{ title: "Event Horizon", year: 2047, img: "https://upload.wikimedia.org/wikipedia/en/8/8c/Event_horizon_ver1.jpg" },
+{ title: "Blade Runner 2049", year: 2049, img: "https://upload.wikimedia.org/wikipedia/en/9/9b/Blade_Runner_2049_poster.png" },
+{ title: "Gattaca", year: 2050, img: "https://upload.wikimedia.org/wikipedia/en/d/de/Gattaca_poster.jpg" },
+{ title: "The Tomorrow War", year: 2051, img: "https://upload.wikimedia.org/wikipedia/en/6/60/The_Tomorrow_War_%282021_film%29_official_theatrical_poster.jpg" },
+{ title: "Lost in Space", year: 2058, img: "https://upload.wikimedia.org/wikipedia/en/d/d0/Lost_in_space_movie_poster.jpg" },
+{ title: "Mad Max: Fury Road", year: 2060, img: "https://upload.wikimedia.org/wikipedia/en/6/6e/Mad_Max_Fury_Road.jpg" },
+{ title: "Equilibrium", year: 2072, img: "https://upload.wikimedia.org/wikipedia/en/f/f6/Equilibriumposter.jpg" },
+{ title: "Oblivion", year: 2077, img: "https://upload.wikimedia.org/wikipedia/en/2/2e/Oblivion2013Poster.jpg" },
+{ title: "Screamers", year: 2078, img: "https://upload.wikimedia.org/wikipedia/en/e/eb/Screamersposter.jpg" },
+{ title: "Lockout", year: 2079, img: "https://upload.wikimedia.org/wikipedia/en/b/b9/Lockout_film_poster.jpg" },
+{ title: "Ender's Game", year: 2083, img: "https://upload.wikimedia.org/wikipedia/en/8/8c/Ender%27s_Game_poster.jpg" },
+{ title: "Total Recall", year: 2084, img: "https://upload.wikimedia.org/wikipedia/en/2/2d/Total_Recall_%281990_film%29_poster.jpg" },
+{ title: "Prometheus", year: 2093, img: "https://upload.wikimedia.org/wikipedia/en/a/a3/Prometheusposterfixed.jpg" },
+{ title: "Dredd", year: 2100, img: "https://m.media-amazon.com/images/M/MV5BODkyNDQzMzUzOF5BMl5BanBnXkFtZTcwODYyMDEyOA@@._V1_FMjpg_UY2048_.jpg" },
+{ title: "Alien: Covenant", year: 2104, img: "https://upload.wikimedia.org/wikipedia/en/3/33/Alien_Covenant_Teaser_Poster.jpg" },
+{ title: "Total Recall", year: 2112, img: "https://upload.wikimedia.org/wikipedia/en/a/a5/TotalRecall2012Poster.jpg" },
+{ title: "Alien", year: 2122, img: "https://upload.wikimedia.org/wikipedia/en/c/c3/Alien_movie_poster.jpg" },
+{ title: "Alien: Romulus", year: 2142, img: "https://upload.wikimedia.org/wikipedia/en/c/cb/Alien_Romulus_2024_%28poster%29.jpg" },
+{ title: "Avatar", year: 2154, img: "https://upload.wikimedia.org/wikipedia/en/d/d6/Avatar_%282009_film%29_poster.jpg" },
+{ title: "Elysium", year: 2154, img: "https://upload.wikimedia.org/wikipedia/en/f/f9/Elysium_Poster.jpg" },
+{ title: "In Time", year: 2169, img: "https://upload.wikimedia.org/wikipedia/en/4/4b/In_Time_poster.jpg" },
+{ title: "Avatar: The Way of Water", year: 2170, img: "https://upload.wikimedia.org/wikipedia/en/5/54/Avatar_The_Way_of_Water_poster.jpg" },
+{ title: "Aliens", year: 2179, img: "https://upload.wikimedia.org/wikipedia/en/f/fb/Aliens_poster.jpg" },
+{ title: "Alien 3", year: 2179, img: "https://upload.wikimedia.org/wikipedia/en/b/b9/Alien3_poster.jpg" },
+{ title: "Starship Troopers", year: 2197, img: "https://upload.wikimedia.org/wikipedia/en/d/df/Starship_Troopers_-_movie_poster.jpg" },
+{ title: "The Matrix", year: 2199, img: "https://upload.wikimedia.org/wikipedia/en/d/db/The_Matrix.png" },
+{ title: "The Giver", year: 2200, img: "https://upload.wikimedia.org/wikipedia/en/0/02/The_Giver_poster.jpg" },
+{ title: "City of Ember", year: 2208, img: "https://upload.wikimedia.org/wikipedia/en/1/18/City_of_ember.jpg" },
+{ title: "Star Trek Into Darkness", year: 2260, img: "https://upload.wikimedia.org/wikipedia/en/5/50/StarTrekIntoDarkness_FinalUSPoster.jpg" },
+{ title: "The Fifth Element", year: 2263, img: "https://upload.wikimedia.org/wikipedia/en/6/65/Fifth_element_poster_%281997%29.jpg" }, /*  https://64.media.tumblr.com/341fd0b20682e445fd250e05d0909d69/tumblr_pvhlknQsKd1vpievmo8_540.gif  */
+{ title: "Star Trek Beyond", year: 2263, img: "https://upload.wikimedia.org/wikipedia/en/b/ba/Star_Trek_Beyond_poster.jpg" },
+{ title: "The Hunger Games", year: 2312, img: "https://upload.wikimedia.org/wikipedia/en/4/42/HungerGamesPoster.jpg" },
+{ title: "Kingdom of the Planet of the Apes", year: 2328, img: "https://upload.wikimedia.org/wikipedia/en/c/cf/Kingdom_of_the_Planet_of_the_Apes_poster.jpg" },
+{ title: "Alien Resurrection", year: 2379, img: "https://upload.wikimedia.org/wikipedia/en/7/70/Alien_Resurrection_poster.jpg" },
+{ title: "Waterworld", year: 2500, img: "https://upload.wikimedia.org/wikipedia/en/5/5f/Waterworld.jpg" },
+{ title: "Idiocracy", year: 2505, img: "https://upload.wikimedia.org/wikipedia/en/6/6b/Idiocracy_movie_poster.jpg" },
+{ title: "Halo 4: Forward Unto Dawn", year: 2526, img: "https://upload.wikimedia.org/wikipedia/en/0/02/Halo4forwarduntodawn.png" },
+{ title: "The Chronicles of Riddick", year: 2583, img: "https://upload.wikimedia.org/wikipedia/en/c/c3/Chronicles_of_riddick_ver2.jpg" },
+{ title: "WALL-E", year: 2805, img: "https://upload.wikimedia.org/wikipedia/en/4/4c/WALL-E_poster.jpg" },
+{ title: "After Earth", year: 3071, img: "https://upload.wikimedia.org/wikipedia/en/5/5b/After_Earth_Poster.jpg" },
+{ title: "Pandorum", year: 3097, img: "https://upload.wikimedia.org/wikipedia/en/3/3d/Pandorum-Poster.jpg" },
+{ title: "Beneath the Planet of the Apes", year: 3978, img: "https://upload.wikimedia.org/wikipedia/en/6/6c/Beneath-the-Planet-of-Apes.jpg" },
+{ title: "Planet of the Apes", year: 3978, img: "https://upload.wikimedia.org/wikipedia/en/f/fd/PlanetoftheapesPoster.jpg" },
+{ title: "Planet of the Apes", year: 5021, img: "https://upload.wikimedia.org/wikipedia/en/2/2c/PotA-2001poster.jpg" }
+/*{ title: "Dune", year: 10191, img: "https://upload.wikimedia.org/wikipedia/en/5/51/Dune_1984_Poster.jpg" } */
+  
+  
+  
+];
+
+/* -------------------------
+   Elements & state
+   ------------------------- */
+const canvas = document.getElementById('canvas');
+const viewport = document.getElementById('viewport');
+const zoomInput = document.getElementById('zoom');
+const zoomVal = document.getElementById('zoomVal');
+
+let baseSpacing = 180;   // base spacing in px (will be multiplied by zoom)
+let baselineEl = null;   // reference to baseline element
+
+/* -------------------------
+   Rendering
+   ------------------------- */
+function renderTimeline(zoom = 1) {
+  canvas.innerHTML = ''; // clear
+  // compute bounds
+  const years = movies.map(m=>m.year);
+  const minY = Math.min(...years);
+  const maxY = Math.max(...years);
+
+  // total width scaled by zoom; ensure it's at least viewport width
+  const totalWidth = Math.max(movies.length * baseSpacing * zoom, viewport.clientWidth * 1.2);
+  canvas.style.width = totalWidth + 'px';
+
+  // baseline element
+  baselineEl = document.createElement('div');
+  baselineEl.className = 'baseline';
+  canvas.appendChild(baselineEl);
+
+  // Tick marks (every 10 years)
+  const tickStep = 10;
+  const startTick = Math.floor(minY / tickStep) * tickStep;
+  const endTick = Math.ceil(maxY / tickStep) * tickStep;
+  for (let y = startTick; y <= endTick; y += tickStep) {
+    const ratio = (y - minY) / (maxY - minY || 1);
+    const x = Math.round(60 + ratio * (totalWidth - 120)); // keep nice left/right padding
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.style.left = x + 'px';
+    const lab = document.createElement('label');
+    lab.textContent = y;
+    tick.appendChild(lab);
+    canvas.appendChild(tick);
+  }
+
+  // Create markers
+  const markerEls = [];
+  movies.forEach((m, i) => {
+    const ratio = (m.year - minY) / (maxY - minY || 1);
+    const x = Math.round(60 + ratio * (totalWidth - 120));
+    const marker = document.createElement('div');
+    marker.className = 'marker ' + (i % 2 === 0 ? 'top' : 'bottom');
+    marker.style.left = (x - 45) + 'px';             // center the 90px thumb
+    marker.style.top = (i % 2 === 0 ? '15%' : '75%'); // vertical placement
+
+    marker.innerHTML = `
+      <img class="thumb" src="${m.img}" alt="${m.title}">
+      <div class="label">${m.title}<br/><span style="color:var(--muted)">${m.year}</span></div>
+    `;
+
+    canvas.appendChild(marker);
+    markerEls.push(marker);
+  });
+
+  // Wait until images are loaded and next frame to compute connectors.
+  const thumbs = Array.from(canvas.querySelectorAll('.thumb'));
+  const loadPromises = thumbs.map(img => {
+    if (img.complete) return Promise.resolve();
+    return new Promise(resolve => { img.onload = img.onerror = () => resolve(); });
+  });
+
+  Promise.all(loadPromises).then(() => {
+    // allow layout to settle
+    requestAnimationFrame(() => {
+      createConnectors(markerEls);
+    });
+  });
+}
+
+/* -------------------------
+   Connectors
+   ------------------------- */
+function createConnectors(markers) {
+  // remove old connectors
+  canvas.querySelectorAll('.connector').forEach(n => n.remove());
+
+  if (!baselineEl) return;
+  const canvasRect = canvas.getBoundingClientRect();
+  const baselineRect = baselineEl.getBoundingClientRect();
+  const gap = 8; // small gap so line doesn't touch thumbnail border
+
+  markers.forEach(marker => {
+    const thumb = marker.querySelector('.thumb');
+    if (!thumb) return;
+
+    const thumbRect = thumb.getBoundingClientRect();
+    // center x relative to canvas
+    const centerX = (thumbRect.left + thumbRect.right) / 2 - canvasRect.left;
+
+    const connector = document.createElement('div');
+    connector.className = 'connector';
+    // horizontally center the 2px connector on the centerX
+    connector.style.left = Math.round(centerX) + 'px';
+    connector.style.transform = 'translateX(-1px)'; // center 2px width
+
+    // compute vertical top and height relative to canvas
+    if (marker.classList.contains('top')) {
+      // line goes from thumb bottom up to baseline top
+      const topPx = Math.round(thumbRect.bottom - canvasRect.top + gap * 8);
+      const heightPx = Math.round(baselineRect.top - thumbRect.bottom - 70);
+      connector.style.top = (topPx) + 'px';
+      connector.style.height = (Math.max(0, heightPx)) + 'px';
+    } else {
+      // bottom marker: line goes from baseline bottom down to thumb top
+      const topPx = Math.round(baselineRect.bottom - canvasRect.top + gap * 0.5);
+      const heightPx = Math.round(thumbRect.top - baselineRect.bottom - gap);
+      connector.style.top = (topPx) + 'px';
+      connector.style.height = (Math.max(0, heightPx)) + 'px';
+    }
+
+    canvas.appendChild(connector);
+  });
+}
+
+/* -------------------------
+   Interaction: wheel => horizontal scroll, drag-to-pan
+   Also update connectors on scroll/resize
+   ------------------------- */
+const scrollSpeed = 1.0;
+viewport.addEventListener('wheel', e => {
+  // if user holds shift, allow default horizontal scroll; otherwise convert vertical to horizontal
+  if (!e.shiftKey) {
+    e.preventDefault();
+    viewport.scrollLeft += e.deltaY * scrollSpeed;
+    // connectors need updating because boundingClientRects change when scrolled
+    requestAnimationFrame(() => {
+      updateConnectorsIfNeeded();
+    });
+  }
+}, { passive: false });
+
+// drag-to-pan
+let isDown = false, startX = 0, startScroll = 0;
+viewport.addEventListener('mousedown', e => {
+  isDown = true;
+  viewport.style.cursor = 'grabbing';
+  startX = e.pageX;
+  startScroll = viewport.scrollLeft;
+});
+window.addEventListener('mouseup', () => { isDown = false; viewport.style.cursor = ''; });
+window.addEventListener('mousemove', e => {
+  if (!isDown) return;
+  const dx = e.pageX - startX;
+  viewport.scrollLeft = startScroll - dx;
+  requestAnimationFrame(updateConnectorsIfNeeded);
+});
+
+// update connectors on scroll and resize
+let connectorsUpdateScheduled = false;
+function updateConnectorsIfNeeded(){
+  if (connectorsUpdateScheduled) return;
+  connectorsUpdateScheduled = true;
+  requestAnimationFrame(()=> {
+    const currentMarkers = Array.from(canvas.querySelectorAll('.marker'));
+    createConnectors(currentMarkers);
+    connectorsUpdateScheduled = false;
+  });
+}
+viewport.addEventListener('scroll', updateConnectorsIfNeeded, { passive: true });
+window.addEventListener('resize', updateConnectorsIfNeeded);
+
+/* -------------------------
+   Zoom control (recalculate spacing, keep current scroll center)
+   ------------------------- */
+zoomInput.addEventListener('input', () => {
+  const val = Number(zoomInput.value);
+  zoomVal.textContent = val.toFixed(2) + '×';
+
+  // preserve current viewport center relative to canvas so zoom feels centered.
+  const viewportCenter = viewport.scrollLeft + viewport.clientWidth / 2;
+  const canvasWidthBefore = canvas.offsetWidth || (movies.length * baseSpacing);
+  const centerRatio = canvasWidthBefore ? viewportCenter / canvasWidthBefore : 0;
+
+  renderTimeline(val);
+
+  // after re-render, set scrollLeft so centerRatio stays centered
+  requestAnimationFrame(() => {
+    const canvasWidthAfter = canvas.offsetWidth;
+    const newCenter = canvasWidthAfter * centerRatio;
+    const newScrollLeft = Math.max(0, Math.round(newCenter - viewport.clientWidth / 2));
+    viewport.scrollLeft = newScrollLeft;
+    updateConnectorsIfNeeded();
+  });
+});
+
+/* -------------------------
+   Initial render
+   ------------------------- */
+renderTimeline(1);
+
+// ensure connectors correct after initial load and small delay
+setTimeout(updateConnectorsIfNeeded, 250);
+</script>
+</body>
+</html>
+
+
+<!-- 
+where we are on the Timeline
+click to exspand with description and video
+how much longer till date
+fix overlap and distance of thumbnails
+
+
+-->
