@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+   <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width,initial-scale=1" />
+      <title>Sci-Fi Movies Timeline — Enhanced</title>
+      <style>
+         :root{
+         --bg:#071018;
+         --accent:#06b6d4;
+         --muted:#94a3b8;
+         --line:#6b7280;
+         --card:#071722;
+         }
+         html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;overflow:hidden;color:#e6eef6;}
+         .timeline-container{position:relative;height:90%;width:100%;overflow:hidden;touch-action:none;}
+         .canvas{position:absolute;top:0;left:0;height:100%;transition:width .18s ease;}
+         .baseline{position:absolute;left:0;top:50%;height:4px;width:100%;background:var(--line);z-index:1;border-radius:2px;}
+         .tick{position:absolute;top:50%;transform:translateY(-50%);width:2px;height:14px;background:var(--line);z-index:2;}
+         .tick label{position:absolute;top:16px;left:-28px;width:56px;text-align:center;font-size:12px;color:var(--muted);}
+         .marker{position:absolute;display:flex;flex-direction:column;align-items:center;user-select:none;z-index:6;will-change:left,top;}
+         .thumb{width:90px;height:120px;border-radius:6px;object-fit:cover;border:3px solid rgba(255,255,255,0.04);transition:transform .12s ease,box-shadow .12s ease;}
+         .marker:hover .thumb{transform:scale(1.08);box-shadow:0 14px 36px rgba(0,0,0,0.6);}
+         .label{margin-top:8px;font-size:12px;color:#cfe7ff;text-align:center;width:140px}
+         .connector{position:absolute;width:2px;background:linear-gradient(180deg,var(--accent),var(--line));border-radius:2px;z-index:3;pointer-events:none;transition:height .08s linear,top .08s linear,left .08s linear;}
+         .controls{position:fixed;left:12px;top:12px;z-index:30;background:rgba(3,8,12,0.8);backdrop-filter:blur(4px);padding:8px 10px;border-radius:10px;display:flex;gap:10px;align-items:center}
+         .controls label{color:var(--muted);font-size:13px}
+         .controls input[type=range]{width:160px}
+         .controls .value{width:56px;text-align:center;color:var(--muted)}
+		 
+         .readout{position:fixed;right:50%;top:12px;background:rgba(3,8,12,0.8);padding:8px 12px;border-radius:10px;color:var(--muted);z-index:30;font-size:13px}
+		 
+         .today-marker{position:absolute;top:50%;transform:translateY(-50%);width:3px;height:26px;background:#ffea7f;z-index:5;border-radius:2px}
+         .today-label{position:absolute;top:calc(50% - 30px);transform:translateX(-50%);color:#ffea7f;font-size:12px;z-index:5;white-space:nowrap}
+		 
+         .card{position:absolute;z-index:50;background:linear-gradient(180deg,var(--card),#04121a);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);width:340px;color:#dfefff;box-shadow:0 12px 40px rgba(0,0,0,0.6)}
+         .card h3{margin:0 0 6px;font-size:16px}
+         .card p{margin:6px 0;color:var(--muted);font-size:13px}
+         .card .media{width:100%;height:180px;background:#000;border-radius:6px;overflow:hidden;margin-bottom:8px}
+         .file-input{display:flex;gap:8px;align-items:center}
+         .file-input input{color:var(--muted)}
+         ::-webkit-scrollbar{display:none}
+         @media (max-width:700px){ .thumb{width:72px;height:96px} .label{width:110px} .card{width:280px} }
+      </style>
+   </head>
+   <body>
+      <div class="timeline-container" id="viewport">
+         <div class="canvas" id="canvas"></div>
+      </div>
+      <!-- Controls -->
+      <div class="controls" id="controls">
+         <label>Zoom</label>
+         <input id="zoom" type="range" min="0.4" max="3.5" step="0.05" value="1">
+         <div class="value" id="zoomVal">1.00×</div>
+         <div class="file-input" style="margin-left:8000px">
+            <label style="color:var(--muted);font-size:13px">Load</label>
+            <input id="dataFile" type="file" accept=".json,.csv" title="Load JSON or CSV">
+         </div>
+      </div>
+      <div class="readout" id="readout">
+         The Year is <span id="centerYear">—</span><br>
+         From now: <span id="yearsUntil">—</span>
+      </div>
+      <script>
+         /* ============================================
+            DATA (initial) - you can replace by loading a file
+            Fields: title, year, img, desc (optional), media (optional - gif/mp4)
+            ============================================ */
+         let movies = [
+           { title: "2001: A Space Odyssey", year: 2001, img: "https://upload.wikimedia.org/wikipedia/en/1/11/2001_A_Space_Odyssey_%281968%29.png" },
+         { title: "I Am Legend", year: 2012, img: "https://upload.wikimedia.org/wikipedia/en/d/df/I_am_legend_teaser.jpg" },
+         { title: "Back to the Future Part II", year: 2015, img: "https://upload.wikimedia.org/wikipedia/en/c/c2/Back_to_the_Future_Part_II.jpg" },
+         { title: "Rise of the Planet of the Apes", year: 2016, img: "https://upload.wikimedia.org/wikipedia/en/8/81/Rise_of_the_Planet_of_the_Apes_Poster.jpg" },
+         { title: "Seeking a Friend for the End of the World", year: 2021, img: "https://upload.wikimedia.org/wikipedia/en/a/a7/Seeking_a_Friend_for_the_End_of_the_World_Poster.jpg" },
+         { title: "Soylent Green", year: 2022, img: "https://upload.wikimedia.org/wikipedia/en/1/13/Soylent_green.jpg" },
+         { title: "Surrogates", year: 2023, img: "https://upload.wikimedia.org/wikipedia/en/f/fd/Surrogates2009MP.jpg" },
+         { title: "Pacific Rim", year: 2025, img: "https://upload.wikimedia.org/wikipedia/en/f/f3/Pacific_Rim_FilmPoster.jpeg" },
+         { title: "The Cloverfield Paradox", year: 2028, img: "https://upload.wikimedia.org/wikipedia/en/e/e5/Cloverfield_paradox_poster.jpg" },
+         { title: "War for the Planet of the Apes", year: 2028, img: "https://upload.wikimedia.org/wikipedia/en/d/d7/War_for_the_Planet_of_the_Apes_poster.jpg" },
+         { title: "Ghost in the Shell", year: 2029, img: "https://upload.wikimedia.org/wikipedia/en/c/ca/Ghostintheshellposter.jpg" },
+         { title: "The Terminator", year: 2029, img: "https://upload.wikimedia.org/wikipedia/en/6/6d/The_Terminator.png" },
+         { title: "eXistenZ", year: 2030, img: "https://upload.wikimedia.org/wikipedia/en/7/76/EXISTENZ.jpg" },
+         { title: "I, Robot", year: 2035, img: "https://upload.wikimedia.org/wikipedia/en/3/3b/Movie_poster_i_robot.jpg" },
+         { title: "The Martian", year: 2035, img: "https://upload.wikimedia.org/wikipedia/en/c/cd/The_Martian_film_poster.jpg" },
+         { title: "Pacific Rim: Uprising", year: 2036, img: "https://upload.wikimedia.org/wikipedia/en/1/12/Pacific_Rim_-_Uprising_%282018_film%29.jpg" },  /* 2035 */
+         { title: "Meet the Robinsons", year: 2037, img: "https://upload.wikimedia.org/wikipedia/en/d/dc/Meet_the_robinsons.jpg" },
+         { title: "RoboCop", year: 2043, img: "https://upload.wikimedia.org/wikipedia/en/1/16/RoboCop_%281987%29_theatrical_poster.jpg" },
+         { title: "Looper", year: 2044, img: "https://upload.wikimedia.org/wikipedia/en/0/0a/Looper_poster.jpg" },
+         { title: "Ready Player One", year: 2045, img: "https://upload.wikimedia.org/wikipedia/en/7/74/Ready_Player_One_%28film%29.png" },
+         { title: "Event Horizon", year: 2047, img: "https://upload.wikimedia.org/wikipedia/en/8/8c/Event_horizon_ver1.jpg" },
+         { title: "Blade Runner 2049", year: 2049, img: "https://upload.wikimedia.org/wikipedia/en/9/9b/Blade_Runner_2049_poster.png" },
+         { title: "Gattaca", year: 2050, img: "https://upload.wikimedia.org/wikipedia/en/d/de/Gattaca_poster.jpg" },
+         { title: "The Tomorrow War", year: 2051, img: "https://upload.wikimedia.org/wikipedia/en/6/60/The_Tomorrow_War_%282021_film%29_official_theatrical_poster.jpg" },
+         { title: "Minority Report", year: 2054, img: "https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcRVi8iXrvMgOUo9xEXrmK88Xxh7-ylz8YmKlLPWIJNK04zlgERt" },
+         { title: "Lost in Space", year: 2058, img: "https://upload.wikimedia.org/wikipedia/en/d/d0/Lost_in_space_movie_poster.jpg" },
+         { title: "Mad Max: Fury Road", year: 2060, img: "https://upload.wikimedia.org/wikipedia/en/6/6e/Mad_Max_Fury_Road.jpg" },
+         { title: "Equilibrium", year: 2072, img: "https://upload.wikimedia.org/wikipedia/en/f/f6/Equilibriumposter.jpg" },
+         { title: "Oblivion", year: 2077, img: "https://upload.wikimedia.org/wikipedia/en/2/2e/Oblivion2013Poster.jpg" },
+         { title: "Screamers", year: 2078, img: "https://upload.wikimedia.org/wikipedia/en/e/eb/Screamersposter.jpg" },
+         { title: "Lockout", year: 2079, img: "https://upload.wikimedia.org/wikipedia/en/b/b9/Lockout_film_poster.jpg" },
+         { title: "Ender's Game", year: 2083, img: "https://upload.wikimedia.org/wikipedia/en/8/8c/Ender%27s_Game_poster.jpg" },
+         { title: "Total Recall", year: 2084, img: "https://upload.wikimedia.org/wikipedia/en/2/2d/Total_Recall_%281990_film%29_poster.jpg" },
+         { title: "Prometheus", year: 2093, img: "https://upload.wikimedia.org/wikipedia/en/a/a3/Prometheusposterfixed.jpg" },
+         { title: "Dredd", year: 2100, img: "https://m.media-amazon.com/images/M/MV5BODkyNDQzMzUzOF5BMl5BanBnXkFtZTcwODYyMDEyOA@@._V1_FMjpg_UY2048_.jpg" },
+         { title: "Alien: Covenant", year: 2104, img: "https://upload.wikimedia.org/wikipedia/en/3/33/Alien_Covenant_Teaser_Poster.jpg" },
+         { title: "Total Recall", year: 2112, img: "https://upload.wikimedia.org/wikipedia/en/a/a5/TotalRecall2012Poster.jpg" },
+         { title: "Alien", year: 2122, img: "https://upload.wikimedia.org/wikipedia/en/c/c3/Alien_movie_poster.jpg" },
+         { title: "Alien: Romulus", year: 2142, img: "https://upload.wikimedia.org/wikipedia/en/c/cb/Alien_Romulus_2024_%28poster%29.jpg" },
+         { title: "Avatar", year: 2154, img: "https://upload.wikimedia.org/wikipedia/en/d/d6/Avatar_%282009_film%29_poster.jpg" },
+         { title: "Elysium", year: 2154, img: "https://upload.wikimedia.org/wikipedia/en/f/f9/Elysium_Poster.jpg" },
+         { title: "In Time", year: 2169, img: "https://upload.wikimedia.org/wikipedia/en/4/4b/In_Time_poster.jpg" },
+         { title: "Avatar: The Way of Water", year: 2170, img: "https://upload.wikimedia.org/wikipedia/en/5/54/Avatar_The_Way_of_Water_poster.jpg" },
+         { title: "Aliens", year: 2179, img: "https://upload.wikimedia.org/wikipedia/en/f/fb/Aliens_poster.jpg" },
+         { title: "Alien 3", year: 2179, img: "https://upload.wikimedia.org/wikipedia/en/b/b9/Alien3_poster.jpg" },
+         { title: "Starship Troopers", year: 2197, img: "https://upload.wikimedia.org/wikipedia/en/d/df/Starship_Troopers_-_movie_poster.jpg" },
+         { title: "The Matrix", year: 2199, img: "https://upload.wikimedia.org/wikipedia/en/d/db/The_Matrix.png" },
+         { title: "The Giver", year: 2200, img: "https://upload.wikimedia.org/wikipedia/en/0/02/The_Giver_poster.jpg" },
+         { title: "City of Ember", year: 2208, img: "https://upload.wikimedia.org/wikipedia/en/1/18/City_of_ember.jpg" },
+         { title: "Star Trek Into Darkness", year: 2260, img: "https://upload.wikimedia.org/wikipedia/en/5/50/StarTrekIntoDarkness_FinalUSPoster.jpg" },
+         { title: "The Fifth Element", year: 2263, img: "https://upload.wikimedia.org/wikipedia/en/6/65/Fifth_element_poster_%281997%29.jpg" }, /*  https://64.media.tumblr.com/341fd0b20682e445fd250e05d0909d69/tumblr_pvhlknQsKd1vpievmo8_540.gif  */
+         { title: "Star Trek Beyond", year: 2263, img: "https://upload.wikimedia.org/wikipedia/en/b/ba/Star_Trek_Beyond_poster.jpg" },
+         { title: "The Hunger Games", year: 2312, img: "https://upload.wikimedia.org/wikipedia/en/4/42/HungerGamesPoster.jpg" },
+         { title: "Kingdom of the Planet of the Apes", year: 2328, img: "https://upload.wikimedia.org/wikipedia/en/c/cf/Kingdom_of_the_Planet_of_the_Apes_poster.jpg" },
+         { title: "Alien Resurrection", year: 2379, img: "https://upload.wikimedia.org/wikipedia/en/7/70/Alien_Resurrection_poster.jpg" },
+         { title: "Waterworld", year: 2500, img: "https://upload.wikimedia.org/wikipedia/en/5/5f/Waterworld.jpg" },
+         { title: "Idiocracy", year: 2505, img: "https://upload.wikimedia.org/wikipedia/en/6/6b/Idiocracy_movie_poster.jpg" },
+         { title: "Halo 4: Forward Unto Dawn", year: 2526, img: "https://upload.wikimedia.org/wikipedia/en/0/02/Halo4forwarduntodawn.png" },
+         { title: "The Chronicles of Riddick", year: 2583, img: "https://upload.wikimedia.org/wikipedia/en/c/c3/Chronicles_of_riddick_ver2.jpg" },
+         { title: "WALL-E", year: 2805, img: "https://upload.wikimedia.org/wikipedia/en/4/4c/WALL-E_poster.jpg" },
+         { title: "After Earth", year: 3071, img: "https://upload.wikimedia.org/wikipedia/en/5/5b/After_Earth_Poster.jpg" },
+         { title: "Pandorum", year: 3097, img: "https://upload.wikimedia.org/wikipedia/en/3/3d/Pandorum-Poster.jpg" },
+         { title: "Beneath the Planet of the Apes", year: 3978, img: "https://upload.wikimedia.org/wikipedia/en/6/6c/Beneath-the-Planet-of-Apes.jpg" },
+         { title: "Planet of the Apes", year: 3978, img: "https://upload.wikimedia.org/wikipedia/en/f/fd/PlanetoftheapesPoster.jpg" },
+         { title: "Planet of the Apes", year: 5021, img: "https://upload.wikimedia.org/wikipedia/en/2/2c/PotA-2001poster.jpg" }
+         /*{ title: "Dune", year: 10191, img: "https://upload.wikimedia.org/wikipedia/en/5/51/Dune_1984_Poster.jpg" } 
+		 
+		 
+		 { title: "Interstellar", year: 2067, img: "https://upload.wikimedia.org/wikipedia/en/b/bc/Interstellar_film_poster.jpg", desc:"Space travel to save humanity." },
+		 
+		 */
+         ];
+         
+         /* ============================================
+            Elements & state
+            ============================================ */
+         const canvas = document.getElementById('canvas');
+         const viewport = document.getElementById('viewport');
+         const zoomInput = document.getElementById('zoom');
+         const zoomVal = document.getElementById('zoomVal');
+         const centerYearEl = document.getElementById('centerYear');
+         const yearsUntilEl = document.getElementById('yearsUntil');
+         const fileInput = document.getElementById('dataFile');
+         
+         let baselineEl = null;
+         const baseSpacing = 40; // px per year baseline (scaled by zoom)
+         const leftPadding = 120;
+         const rightPadding = 120;
+         const today = new Date();
+         const todayYear = today.getFullYear();
+         
+         /* ============================================
+            Render timeline
+            zoom controls spacing only (thumbs constant size)
+            ============================================ */
+         function renderTimeline(zoom = Number(zoomInput.value) || 1) {
+           canvas.innerHTML = '';
+           const years = movies.map(m => m.year);
+           if (years.length === 0) return;
+           const minY = Math.min(...years);
+           const maxY = Math.max(...years);
+         
+           // width based on year span and zoom but ensure at least viewport width
+           const spanYears = Math.max(1, maxY - minY);
+           const totalWidth = Math.max(viewport.clientWidth, Math.round(spanYears * baseSpacing * zoom) + leftPadding + rightPadding);
+           canvas.style.width = totalWidth + 'px';
+         
+           // baseline
+           baselineEl = document.createElement('div');
+           baselineEl.className = 'baseline';
+           canvas.appendChild(baselineEl);
+         
+           // today marker
+           const todayX = yearToX(todayYear, minY, maxY, totalWidth);
+           const todayMarker = document.createElement('div');
+           todayMarker.className = 'today-marker';
+           todayMarker.style.left = todayX + 'px';
+           canvas.appendChild(todayMarker);
+           const todayLabel = document.createElement('div');
+           todayLabel.className = 'today-label';
+           todayLabel.style.left = todayX + 'px';
+           todayLabel.textContent = `Today • ${todayYear}`;
+           canvas.appendChild(todayLabel);
+         
+           // tick marks (adaptive step)
+           const approxTicks = Math.max(6, Math.min(30, Math.floor(spanYears / (10 / zoom)))); // aim for reasonable tick count
+           const rawStep = Math.ceil(spanYears / approxTicks / 1) * 1;
+           const step = snapStep(rawStep); // nicer round decades/years
+           const startTick = Math.floor(minY / step) * step;
+           const endTick = Math.ceil(maxY / step) * step;
+           for (let y = startTick; y <= endTick; y += step) {
+             const x = yearToX(y, minY, maxY, totalWidth);
+             const tick = document.createElement('div');
+             tick.className = 'tick';
+             tick.style.left = x + 'px';
+             const lab = document.createElement('label');
+             lab.textContent = y;
+             tick.appendChild(lab);
+             canvas.appendChild(tick);
+           }
+         
+           // compute x positions for each movie
+           const items = movies.map((m, i) => {
+             const x = yearToX(m.year, minY, maxY, totalWidth);
+             return { ...m, idx: i, x };
+           });
+         
+           // overlap avoidance: compute neighbor counts within threshold and adjust offsets
+           const threshold = 0; // px minimum comfortable center-to-center
+           items.forEach(item => {
+             const neighbors = items.filter(o => o !== item && Math.abs(o.x - item.x) < threshold);
+             item.nearbyCount = neighbors.length;
+             // clamp
+             item.nearbyCount = Math.min(item.nearbyCount, 4);
+           });
+         
+           // create markers and connectors
+           const markerEls = [];
+           items.forEach((item, i) => {
+             const marker = document.createElement('div');
+             marker.className = 'marker';
+             // alternating sides
+             const side = (i % 2 === 0) ? 'top' : 'bottom';
+             marker.classList.add(side);
+         
+             // vertical displacement based on nearbyCount (moves away from baseline to reduce overlap)
+             const baseTopPct = side === 'top' ? 15 : 65;
+             const shift = item.nearbyCount * 6; // percent shift per nearby item
+             const topPct = side === 'top' ? Math.max(6, baseTopPct - shift) : Math.min(94, baseTopPct + shift);
+             marker.style.top = topPct + '%';
+         
+             // place horizontally centered at item.x
+             marker.style.left = (item.x - 45) + 'px'; // 90px thumb width / 2
+         
+             marker.innerHTML = `
+               <img class="thumb" src="${item.img}" alt="${escapeHtml(item.title)}">
+               <div class="label">${escapeHtml(item.title)}<br/><span style="color:var(--muted)">${item.year}</span></div>
+             `;
+             canvas.appendChild(marker);
+             markerEls.push({ el: marker, data: item });
+           });
+         
+           // after images load, draw connectors
+           const thumbs = Array.from(canvas.querySelectorAll('.thumb'));
+           const loads = thumbs.map(img => img.complete ? Promise.resolve() : new Promise(r=>{img.onload=img.onerror=r;}));
+           Promise.all(loads).then(()=> {
+             // slight delay for layout
+             requestAnimationFrame(()=> createConnectors(markerEls));
+           });
+         
+           // attach click handlers for expansion
+           markerEls.forEach(({ el, data })=>{
+             el.onclick = (ev) => {
+               ev.stopPropagation();
+               openCardFor(el, data);
+             };
+           });
+         
+           // update readout for center
+           updateCenterReadout();
+         }
+         
+         /* ============================================
+            Helpers: mapping year <-> x
+            ============================================ */
+         function yearToX(year, minY, maxY, width){
+           // linear interpolation with padding
+           const span = (maxY - minY) || 1;
+           const ratio = (year - minY) / span;
+           const x = Math.round(leftPadding + ratio * (width - leftPadding - rightPadding));
+           return x;
+         }
+         function xToYear(x, minY, maxY, width){
+           const span = (maxY - minY) || 1;
+           const ratio = (x - leftPadding) / (width - leftPadding - rightPadding);
+           return Math.round(minY + ratio * span);
+         }
+         function snapStep(n){
+           // pick a pleasing step (1,2,5,10,20,50,100)
+           const prefs = [1,2,5,10,20,50,100,200,500,1000];
+           for (let p of prefs) if (n <= p) return p;
+           return prefs[prefs.length-1];
+         }
+         function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]); }
+         
+         /* ============================================
+            Connectors: baseline center to thumb edge
+            ============================================ */
+         function createConnectors(markerItems){
+           // remove old connectors
+           canvas.querySelectorAll('.connector').forEach(n=>n.remove());
+           if (!baselineEl) baselineEl = canvas.querySelector('.baseline');
+           if (!baselineEl) return;
+           const canvasRect = canvas.getBoundingClientRect();
+           const baselineRect = baselineEl.getBoundingClientRect();
+           const baselineY = (baselineRect.top + baselineRect.bottom) / 2 - canvasRect.top;
+           const gap = 6;
+         
+           markerItems.forEach(({el})=>{
+             const thumb = el.querySelector('.thumb');
+             if (!thumb) return;
+             const thumbRect = thumb.getBoundingClientRect();
+             const centerX = (thumbRect.left + thumbRect.right)/2 - canvasRect.left;
+             const connector = document.createElement('div');
+             connector.className = 'connector';
+             connector.style.left = Math.round(centerX) + 'px';
+             connector.style.transform = 'translateX(-1px)';
+             if (el.classList.contains('top')) {
+               // baseline -> thumb bottom (baseline is center line; top thumbnails are above baseline)
+               const thumbBottom = thumbRect.bottom - canvasRect.top + gap;
+               connector.style.top = baselineY + 'px';
+               connector.style.height = Math.max(0, thumbBottom - baselineY) + 'px';
+             } else {
+               // thumb top -> baseline
+               const thumbTop = thumbRect.top - canvasRect.top - gap;
+               connector.style.top = thumbTop + 'px';
+               connector.style.height = Math.max(0, baselineY - thumbTop) + 'px';
+             }
+             canvas.appendChild(connector);
+           });
+         }
+         
+         /* ============================================
+            Click-to-expand card
+            - opens inline card anchored to clicked marker
+            - contains title, desc, optional media (gif/mp4/url)
+            ============================================ */
+         let openCardEl = null;
+         function openCardFor(markerEl, data){
+           closeOpenCard();
+           const card = document.createElement('div');
+           card.className = 'card';
+           // place near marker horizontally and near baseline vertically in a readable spot
+           const canvasRect = canvas.getBoundingClientRect();
+           const markerRect = markerEl.getBoundingClientRect();
+           const centerX = (markerRect.left + markerRect.right)/2 - canvasRect.left;
+           const sideTop = markerEl.classList.contains('top');
+         
+           // build card inner
+           let mediaHtml = '';
+           if (data.media) {
+             // allow mp4/gif/img urls - try video tag for mp4, img otherwise
+             if (data.media.match(/\.(mp4|webm)$/i)) {
+               mediaHtml = `<div class="media"><video src="${data.media}" playsinline muted loop autoplay style="width:100%;height:100%;object-fit:cover"></video></div>`;
+             } else {
+               mediaHtml = `<div class="media"><img src="${data.media}" alt="" style="width:100%;height:100%;object-fit:cover"></div>`;
+             }
+           } else {
+             // fallback poster
+             mediaHtml = `<div class="media"><img src="${data.img}" alt="" style="width:100%;height:100%;object-fit:cover;opacity:0.9"></div>`;
+           }
+         
+           card.innerHTML = `
+             ${mediaHtml}
+             <h3>${escapeHtml(data.title)} <span style="color:var(--muted);font-size:12px">(${data.year})</span></h3>
+             <p>${escapeHtml(data.desc || 'No description available.')}</p>
+             <div style="display:flex;gap:8px;justify-content:flex-end">
+               <button id="closeCardBtn" style="background:var(--accent);border:none;padding:6px 10px;border-radius:6px;cursor:pointer;color:#021124">Close</button>
+             </div>
+           `;
+           document.body.appendChild(card);
+         
+           // position card avoiding going off-screen
+           const cardRect = card.getBoundingClientRect();
+           let left = centerX + canvas.getBoundingClientRect().left - (cardRect.width/2);
+           left = Math.max(8, Math.min(window.innerWidth - cardRect.width - 8, left));
+           // vertical: if marker is top, place below baseline; if bottom, place above baseline
+           const baselineScreenY = canvas.getBoundingClientRect().top + canvas.querySelector('.baseline').getBoundingClientRect().top - canvas.getBoundingClientRect().top;
+           let top;
+           if (sideTop) {
+             top = canvas.getBoundingClientRect().top + (window.innerHeight * 0.52); // below baseline
+             top = Math.min(window.innerHeight - cardRect.height - 8, top);
+           } else {
+             top = window.innerHeight * 0.06; // near top
+           }
+           // quick adjust to absolute viewport coords
+           top = Math.max(8, top);
+           card.style.left = left + 'px';
+           card.style.top = top + 'px';
+           openCardEl = card;
+         
+           document.getElementById('closeCardBtn').onclick = closeOpenCard;
+           // clicking outside card closes it
+           setTimeout(()=> {
+             window.addEventListener('click', outsideClick);
+           },10);
+         
+           function outsideClick(e){
+             if (!card.contains(e.target) && !markerEl.contains(e.target)) closeOpenCard();
+           }
+         }
+         function closeOpenCard(){
+           if (openCardEl) {
+             openCardEl.remove();
+             openCardEl = null;
+             window.removeEventListener('click', outsideClick); // safe to attempt even if not set
+           }
+           function outsideClick(){}
+         }
+         
+         /* ============================================
+            Readout: which year is centered and years until/from today
+            ============================================ */
+         function updateCenterReadout(){
+           const years = movies.map(m => m.year);
+           if (years.length===0) { centerYearEl.textContent='—'; yearsUntilEl.textContent='—'; return; }
+           const minY = Math.min(...years);
+           const maxY = Math.max(...years);
+           const totalWidth = canvas.offsetWidth;
+           const centerX = viewport.scrollLeft + viewport.clientWidth/2;
+           // compute year mapping
+           const ratio = (centerX - leftPadding) / (totalWidth - leftPadding - rightPadding);
+           const year = Math.round(minY + Math.max(0, Math.min(1, ratio)) * (maxY - minY));
+           centerYearEl.textContent = year;
+           const diff = year - todayYear;
+           yearsUntilEl.textContent = diff === 0 ? 'this year' : (diff > 0 ? `${diff} years from now` : `${Math.abs(diff)} years ago`);
+         }
+         
+         /* ============================================
+            Interaction & gestures: wheel->horiz, drag, touch gestures with inertia, pinch-to-zoom
+            ============================================ */
+         let isDown=false, startX=0, startScroll=0;
+         let touchStartX=0, touchStartScroll=0, pinchStartDist=0, pinchStartZoom=1;
+         let velocity=0, lastTouchX=0, lastTime=0, momentumID=null;
+         
+         function cancelMomentum(){ if (momentumID) cancelAnimationFrame(momentumID); momentumID=null; velocity=0; }
+         
+         viewport.addEventListener('mousedown', (e)=>{
+           isDown=true; startX=e.pageX; startScroll=viewport.scrollLeft; viewport.style.cursor='grabbing'; cancelMomentum();
+         });
+         window.addEventListener('mouseup', ()=>{ isDown=false; viewport.style.cursor=''; });
+         window.addEventListener('mousemove', (e)=>{ if(!isDown) return; const dx=e.pageX - startX; viewport.scrollLeft = startScroll - dx; updateCenterReadout(); createConnectors([...canvas.querySelectorAll('.marker')]); });
+         
+         viewport.addEventListener('wheel', (e)=>{
+           if (!e.shiftKey) { e.preventDefault(); viewport.scrollLeft += e.deltaY; updateCenterReadout(); createConnectors([...canvas.querySelectorAll('.marker')]); }
+         }, { passive:false });
+         
+         // touch handlers
+         viewport.addEventListener('touchstart', (e)=>{
+           cancelMomentum();
+           if (e.touches.length === 1){
+             touchStartX = e.touches[0].clientX;
+             touchStartScroll = viewport.scrollLeft;
+             lastTouchX = touchStartX;
+             lastTime = performance.now();
+           } else if (e.touches.length === 2){
+             const dx = e.touches[0].clientX - e.touches[1].clientX;
+             const dy = e.touches[0].clientY - e.touches[1].clientY;
+             pinchStartDist = Math.hypot(dx,dy);
+             pinchStartZoom = Number(zoomInput.value);
+           }
+         }, { passive:false });
+         
+         viewport.addEventListener('touchmove', (e)=>{
+           if (e.touches.length === 1){
+             const dx = e.touches[0].clientX - touchStartX;
+             viewport.scrollLeft = touchStartScroll - dx;
+             // velocity calc
+             const now = performance.now();
+             const deltaX = e.touches[0].clientX - lastTouchX;
+             const dt = now - lastTime || 16;
+             velocity = deltaX / dt;
+             lastTouchX = e.touches[0].clientX;
+             lastTime = now;
+             updateCenterReadout();
+             createConnectors([...canvas.querySelectorAll('.marker')]);
+           } else if (e.touches.length === 2){
+             const dx = e.touches[0].clientX - e.touches[1].clientX;
+             const dy = e.touches[0].clientY - e.touches[1].clientY;
+             const dist = Math.hypot(dx,dy);
+             const scale = dist / pinchStartDist;
+             let newZoom = Math.min(3.5, Math.max(0.4, pinchStartZoom * scale));
+             zoomInput.value = newZoom;
+             // preserve center while zooming
+             preserveCenterOnZoom(newZoom);
+           }
+           e.preventDefault();
+         }, { passive:false });
+         
+         viewport.addEventListener('touchend', (e)=>{
+           // if lift finger(s), begin momentum if we have velocity
+           if (Math.abs(velocity) > 0.001) startMomentum();
+         });
+         
+         function startMomentum(){
+           const friction = 0.95;
+           function step(){
+             viewport.scrollLeft -= velocity * 30;
+             velocity *= friction;
+             updateCenterReadout();
+             createConnectors([...canvas.querySelectorAll('.marker')]);
+             if (Math.abs(velocity) > 0.001){
+               momentumID = requestAnimationFrame(step);
+             } else {
+               momentumID = null;
+             }
+           }
+           step();
+         }
+         
+         /* keep the center year the same when updating zoom */
+         function preserveCenterOnZoom(newZoom){
+           const years = movies.map(m=>m.year);
+           const minY = Math.min(...years), maxY = Math.max(...years);
+           const beforeWidth = canvas.offsetWidth || ( (maxY-minY)*baseSpacing*Number(zoomInput.value) + leftPadding + rightPadding );
+           const centerX = viewport.scrollLeft + viewport.clientWidth/2;
+           const centerRatio = beforeWidth ? (centerX / beforeWidth) : 0;
+           renderTimeline(newZoom);
+           requestAnimationFrame(()=> {
+             const afterWidth = canvas.offsetWidth;
+             const newCenter = Math.round(afterWidth * centerRatio);
+             viewport.scrollLeft = Math.max(0, newCenter - viewport.clientWidth/2);
+             updateCenterReadout();
+             createConnectors([...canvas.querySelectorAll('.marker')]);
+           });
+         }
+         
+         /* zoom input handling */
+         zoomInput.addEventListener('input', ()=>{
+           const val = Number(zoomInput.value);
+           zoomVal.textContent = val.toFixed(2) + '×';
+           preserveCenterOnZoom(val);
+         });
+         
+         /* handle resize and scroll updates */
+         window.addEventListener('resize', ()=> preserveCenterOnZoom(Number(zoomInput.value)));
+         viewport.addEventListener('scroll', ()=> { updateCenterReadout(); /* connectors update handled via requestAnimationFrame in other places */ });
+         
+         /* ============================================
+            Data loading: local JSON or CSV
+            CSV format: title,year,img,desc,media
+            ============================================ */
+         fileInput.addEventListener('change', async (e)=>{
+           const f = e.target.files[0];
+           if(!f) return;
+           const text = await f.text();
+           const name = (f.name || '').toLowerCase();
+           if (name.endsWith('.json')) {
+             try {
+               const parsed = JSON.parse(text);
+               if (Array.isArray(parsed)) movies = parsed;
+               else if (Array.isArray(parsed.movies)) movies = parsed.movies;
+               else alert('JSON must be an array of movie objects or { movies: [...] }');
+             } catch (err){ alert('Invalid JSON: '+err.message); return; }
+           } else if (name.endsWith('.csv')) {
+             movies = csvToObjects(text);
+           } else {
+             alert('Unsupported file type. Use JSON or CSV.');
+             return;
+           }
+           // rerender, center to min year
+           renderTimeline(Number(zoomInput.value));
+           viewport.scrollLeft = 0;
+         });
+         
+         /* simple CSV parser (first row headers) */
+         function csvToObjects(text){
+           const rows = text.trim().split(/\r?\n/).map(r => r.split(',')).filter(r => r.length);
+           if (rows.length < 2) return [];
+           const headers = rows[0].map(h=>h.trim());
+           return rows.slice(1).map(r=>{
+             const obj = {};
+             for (let i=0;i<headers.length;i++){
+               let v = (r[i] || '').trim();
+               if (headers[i].toLowerCase() === 'year') v = Number(v) || 0;
+               obj[headers[i]] = v;
+             }
+             return obj;
+           });
+         }
+         
+         /* initial render */
+         renderTimeline(Number(zoomInput.value));
+         updateCenterReadout();
+      </script>
+   </body>
+</html>
+
+
+<!--
+
+dynmaic timeline dates zooming in more dates
+years from today in description	
+fixing overlap
+lines to the thumbnails
+family tree for movies in the same series
+compare button - compare between multiple films - years apart - 
+
+
+graph most popular years
+
+
+
+
+
+-->
